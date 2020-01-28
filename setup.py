@@ -29,7 +29,7 @@ setup(
         'threadsafe_tkinter',
         ],
     package_data={
-        '': ['*.txt', '*.md', '*.rst'],
+        '': ['*.TXT', '*.md', '*.rst'],
         },
     platforms=["POSIX", "Windows"],
     keywords="tkinter, thread, multithread, threadsafe",
