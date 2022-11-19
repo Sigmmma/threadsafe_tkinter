@@ -1,7 +1,7 @@
 # Configuration for builder found at https://github.com/gbMichelle/wheelman
 
 # Name of distribution, needed for file copying.
-name: threadsafe-tkinter
+name: threadsafe_tkinter
 
 #These get copied into the distribution
 include_files:
