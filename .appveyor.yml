@@ -4,7 +4,7 @@ image:
 environment:
   matrix:
     # Environment vars to send to the build VM
-    - PYTHON: "C:\\Python311-x64\\python.exe"
+    - PYTHON: "C:\\Python38-x64\\python.exe"
       WHEELMAN_TARGET: windows
       WHEELMAN_REPO: "https://github.com/gbMichelle/wheelman.git"
       TWINE_USERNAME:
@@ -16,7 +16,7 @@ install:
   # Windows install prep.
   - cmd: |
         git clone %WHEELMAN_REPO% wheelman
-        %PYTHON% -m pip install wheel pyyaml twine shutil
+        %PYTHON% -m pip install wheel pyyaml twine
 
 # Turn off MSBuild mode.
 build: off
