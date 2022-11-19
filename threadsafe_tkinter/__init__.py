@@ -28,8 +28,8 @@ DEALINGS IN THE SOFTWARE.
 # ##############
 __author__ = "Devin Bobadilla"
 #           YYYY.MM.DD
-__date__ = "2020.01.28"
-__version__ = (1, 0, 3)
+__date__ = "2022.11.19"
+__version__ = (1, 0, 4)
 
 try:
     from tkinter import *
@@ -37,7 +37,11 @@ except ImportError:
     from Tkinter import *
 from queue import Queue as _Queue
 from time import sleep as _sleep
-from threading import currentThread as _curr_thread, _DummyThread
+try:
+    from threading import currentThread as _curr_thread, _DummyThread
+except ImportError:
+    from threading import current_thread as _curr_thread, _DummyThread
+
 from types import FunctionType
 
 TKHOOK_UNHOOKING = -1
