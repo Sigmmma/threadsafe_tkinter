@@ -7,15 +7,7 @@ except ImportError:
 
 import threadsafe_tkinter
 
-
-try:
-    curr_dir = dirname(__file__)
-    try:
-        long_desc = open(join(curr_dir, "readme.rst")).read()
-    except Exception:
-        long_desc = open(join(curr_dir, "readme.md")).read()
-except Exception:
-    long_desc = 'Could not read long description from readme.'
+long_desc = 'Simple wrapper library for tkinter that makes it threadsafe.'
 
 setup(
     name='threadsafe_tkinter',
