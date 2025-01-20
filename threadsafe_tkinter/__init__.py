@@ -28,15 +28,14 @@ DEALINGS IN THE SOFTWARE.
 # ##############
 __author__ = "Devin Bobadilla"
 #           YYYY.MM.DD
-__date__ = "2022.11.19"
-__version__ = (1, 0, 4)
+__date__ = "2025.01.18"
+__version__ = (1, 0, 5)
 
 try:
     from tkinter import *
 except ImportError:
     from Tkinter import *
-from queue import Queue as _Queue
-from time import sleep as _sleep
+from queue import Queue as _Queue, Empty as _Empty
 try:
     from threading import currentThread as _curr_thread, _DummyThread
 except ImportError:
@@ -50,8 +49,8 @@ TKHOOK_HOOKED = 1
 
 
 class TkWrapper:
-    # process ~66 times per second(aiming for 60Hz with some wiggle room)
-    idle_time = 15  # process requests every 15 milliseconds
+    # process ~90 times per second(aiming for 90Hz with some wiggle room)
+    idle_time = 11  # process requests every 11 milliseconds
     after_call_id = None
     _hook_status = TKHOOK_UNHOOKED
 
@@ -62,8 +61,8 @@ class TkWrapper:
         self.after_call_id = None
 
     # change these if your application uses a different threading framework.
-    def get_curr_thread(self): return _curr_thread()
-    def create_queue(self):    return _Queue()
+    def get_curr_thread(self):      return _curr_thread()
+    def create_queue(self, size=0): return _Queue(size)
 
     def __getattr__(self, attr_name):
         if self.tk_widget is None or self.tk_widget._tk is None:
@@ -82,11 +81,16 @@ class TkWrapper:
             return tk_attr(*a, **kw)
 
         # add a request to the requests queue to call this attribute
-        result, raise_result = response = [None, None]
-        self.request_queue.put((response, tk_attr, a, kw))
-        while raise_result is None and self.tk_widget is not None:
-            _sleep(0.0001)
-            result, raise_result = response
+        response_queue = self.create_queue(1)
+        result, raise_result = None, None
+
+        self.request_queue.put((response_queue, tk_attr, a, kw))
+        while result is None and self.tk_widget is not None:
+            try:
+                response = response_queue.get(True, 3)
+                result, raise_result = response
+            except _Empty:
+                pass
 
         if raise_result:
             raise result
@@ -124,19 +128,26 @@ class TkWrapper:
         # cleanup will be set to True when the wrapper is unhooking. This
         # will force the loop to finish processing requests before it ends.
         cleanup = True
-        while cleanup:
+        while cleanup or not self.request_queue.empty():
             cleanup = False
-            while (self.tk_widget is not None and
-                   self._hook_status != TKHOOK_UNHOOKED) or cleanup:
-                try:
-                    response, func, a, kw = self.request_queue.get_nowait()
-                except Exception:
-                    break
+            try:
+                response_queue = None
+                while (self.tk_widget is not None and
+                       self._hook_status != TKHOOK_UNHOOKED) or cleanup:
+                    response_queue = None
+                    # get the response container, function and args, call
+                    # the function and place the result into the response
+                    item = self.request_queue.get_nowait()
+                    response_queue, func, a, kw = item
+                    result = func(*a, **kw)
+                    response_queue.put((result, False))
 
-                try:
-                    response[:] = (func(*a, **kw), False)
-                except Exception as e:
-                    response[:] = (e, True)
+            except _Empty:
+                # nothing to process. break out of loop
+                pass
+            except Exception as e:
+                if response_queue is not None:
+                    response_queue.put((e, True))
 
             if self._hook_status == TKHOOK_UNHOOKING:
                 self.tk_widget.tk = self.tk_widget._tk
@@ -146,8 +157,10 @@ class TkWrapper:
                 cleanup = True
 
         if self._hook_status == TKHOOK_HOOKED and self.tk_widget is not None:
+            # start another callback next time we can process
             self.after_call_id = self.tk_widget.after(
-                self.idle_time, self.process_requests)
+                self.idle_time, self.process_requests
+                )
 
 
 def _tk_init_override(self, *a, **kw):
@@ -156,12 +169,17 @@ def _tk_init_override(self, *a, **kw):
         # replace the underlying tk object with the wrapper
         TkWrapper().hook(self)
 
-
 def _tk_destroy_override(self, *a, **kw):
+    commands_to_cancel = self.tk.tk_widget._tclCommands
     self._orig_destroy(*a, **kw)
     if hasattr(self.tk, "unhook"):
         # unhook the tk object wrapper
         self.tk.unhook()
+
+    # to ensure no lingering commands attempt to run, we cancel them
+    for cmd in commands_to_cancel[::-1]:
+        self.tk_widget.after_cancel(cmd)
+
 
 
 # dont hook twice or we'll end up with an infinite loop
