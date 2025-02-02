@@ -28,13 +28,17 @@ DEALINGS IN THE SOFTWARE.
 # ##############
 __author__ = "Devin Bobadilla"
 #           YYYY.MM.DD
-__date__ = "2025.01.18"
-__version__ = (1, 0, 5)
+__date__ = "2025.02.02"
+__version__ = (1, 0, 6)
+
+import os
+ENV_DISABLED = os.environ.get("THREADSAFE_TKINTER_DISABLE")
 
 try:
     from tkinter import *
 except ImportError:
     from Tkinter import *
+
 from queue import Queue as _Queue, Empty as _Empty
 try:
     from threading import currentThread as _curr_thread, _DummyThread
@@ -42,6 +46,7 @@ except ImportError:
     from threading import current_thread as _curr_thread, _DummyThread
 
 from types import FunctionType
+from traceback import format_exception
 
 TKHOOK_UNHOOKING = -1
 TKHOOK_UNHOOKED = 0
@@ -66,31 +71,35 @@ class TkWrapper:
 
     def __getattr__(self, attr_name):
         if self.tk_widget is None or self.tk_widget._tk is None:
-            raise AttributeError(
-                "self.tk_widget is None. Not hooked into a Tk instance.")
+            raise AttributeError("Not hooked into a Tk instance.")
 
         tk_attr = getattr(self.tk_widget._tk, attr_name)
-        return (lambda *a, _f=tk_attr, **kw:
-                self.call_tk_attr_threadsafe(_f, *a, **kw))
+
+        return (lambda *a, _f=tk_attr, _s=self, **kw:
+                _s.call_tk_attr_threadsafe(_f, *a, **kw))
 
     def call_tk_attr_threadsafe(self, tk_attr, *a, **kw):
         thread = self.get_curr_thread()
+
         if thread == self.tk_thread or isinstance(thread, _DummyThread):
             # it is either safe to call from the thread the tkinter widget
             # is running on, or a dummy thread is running which is also safe
             return tk_attr(*a, **kw)
 
         # add a request to the requests queue to call this attribute
-        response_queue = self.create_queue(1)
-        result, raise_result = None, None
+        resp_queue, raise_result = self.create_queue(1), False
+        result = undefined = object()
 
-        self.request_queue.put((response_queue, tk_attr, a, kw))
-        while result is None and self.tk_widget is not None:
+        self.request_queue.put((resp_queue, tk_attr, a, kw))
+        while result is undefined and self.tk_widget is not None:
             try:
-                response = response_queue.get(True, 3)
+                response = resp_queue.get(True, 3)
                 result, raise_result = response
             except _Empty:
                 pass
+            except ValueError as e:
+                if result is undefined:
+                    result, raise_result = e, True
 
         if raise_result:
             raise result
@@ -129,26 +138,26 @@ class TkWrapper:
         # will force the loop to finish processing requests before it ends.
         cleanup = True
         while cleanup or not self.request_queue.empty():
-            cleanup = False
+            cleanup, resp_queue, result = False, None, None
             try:
-                response_queue = None
                 while (self.tk_widget is not None and
                        self._hook_status != TKHOOK_UNHOOKED) or cleanup:
-                    response_queue = None
+                    resp_queue = result = None
                     # get the response container, function and args, call
                     # the function and place the result into the response
-                    item = self.request_queue.get_nowait()
-                    response_queue, func, a, kw = item
-                    result = func(*a, **kw)
-                    response_queue.put((result, False))
-
+                    resp_queue, func, a, kw = self.request_queue.get_nowait()
+                    result = (func(*a, **kw), False)
+                    break
             except _Empty:
                 # nothing to process. break out of loop
                 pass
-            except Exception as e:
-                if response_queue is not None:
-                    response_queue.put((e, True))
+            except BaseException as e:
+                if resp_queue is None:
+                    print(format_exception(e))
+                else:
+                    result = (e, True)
 
+            result and resp_queue.put(result)
             if self._hook_status == TKHOOK_UNHOOKING:
                 self.tk_widget.tk = self.tk_widget._tk
                 self._hook_status = TKHOOK_UNHOOKED
@@ -181,13 +190,12 @@ def _tk_destroy_override(self, *a, **kw):
         self.tk_widget.after_cancel(cmd)
 
 
-
 # dont hook twice or we'll end up with an infinite loop
-if not hasattr(Tk, "_orig_init"):
+if not(hasattr(Tk, "_orig_init") or ENV_DISABLED):
     Tk._orig_init = Tk.__init__
     Tk.__init__   = _tk_init_override
 
 
-if not hasattr(Tk, "_orig_destroy"):
+if not(hasattr(Tk, "_orig_destroy") or ENV_DISABLED):
     Tk._orig_destroy = Tk.destroy
     Tk.destroy       = _tk_destroy_override
